@@ -56,11 +56,35 @@ export const connectHttpTransport = (port: number) => {
   const httpTransports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
 
   app.post('/mcp', async (req, res) => {
+    if (req.body?.method === 'ping') {
+      res.status(200).json({
+        jsonrpc: '2.0',
+        result: {},
+        id: req.body?.id ?? null
+      });
+      return;
+    }
+
     const sessionIdFromHeader = req.headers['mcp-session-id'] as string | undefined;
     let transport: StreamableHTTPServerTransport;
 
     if (sessionIdFromHeader && httpTransports[sessionIdFromHeader]) {
       transport = httpTransports[sessionIdFromHeader];
+    } else if (sessionIdFromHeader && Object.keys(httpTransports).length === 1) {
+      const onlySessionId = Object.keys(httpTransports)[0];
+      transport = httpTransports[onlySessionId];
+      delete httpTransports[onlySessionId];
+      (transport as StreamableHTTPServerTransport & { sessionId?: string }).sessionId =
+        sessionIdFromHeader;
+      httpTransports[sessionIdFromHeader] = transport;
+
+      logger.warn(
+        {
+          providedSessionId: sessionIdFromHeader,
+          onlySessionId
+        },
+        'Aliasing unknown MCP session ID to existing single session'
+      );
     } else if (!sessionIdFromHeader && isInitializeRequest(req.body)) {
       const argocdBaseUrl =
         (req.headers['x-argocd-base-url'] as string) || process.env.ARGOCD_BASE_URL || '';
